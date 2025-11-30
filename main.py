@@ -44,8 +44,8 @@ async def main():
 
     # Say Hello
     me = await client.get_me()
-    print("--- TGRAM (v.0.0.1) ---")
-    print(f"   Welcome back [{me}]")
+    print("######## TGRAM (v.0.0.1) ########")
+    # print(f"   Welcome back [{me}]")
     
     # Hava a CLI and run it
     cli = Cli(limit=args.limit, client=client)
