@@ -1,57 +1,79 @@
 import asyncio
+import pandas as pd
+import datetime
 import dotenv
+import sys
 import os
-import argparse
-import telethon
+from   client import Client
 
-from client import Client
-from cli    import Cli
+# Define API_ID and API_HASH
+dotenv.load_dotenv()
+API_ID   = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
 
-    
+if not API_ID or not API_HASH:
+    raise RuntimeError(print("[error]: API_ID or API_HASH not defined"))
+
 async def main():
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--api_hash", type=str, required=False,  help="API Hash (You can get it from https://my.telegram.org)")
-    parser.add_argument("--api_id",   type=int, required=False,  help="API ID (You can get it from https://my.telegram.org)")
-    parser.add_argument("--limit",    type=int, required=False,  help="Number of messages to fetch")
-    args = parser.parse_args()
-
-    api_hash = None
-    api_id   = None
-
-    # Derive from command line arguments
-    # both the HASH and the ID for using
-    # the Telegram API
-    if args.api_hash and args.api_id:
-        api_hash = args.api_hash
-        api_id   = args.api_id
-    # Derive from .env file (if it exists)
-    # both the HASH and the ID for using
-    # the Telegram API
-    else:
-        dotenv.load_dotenv()
-        api_hash = os.getenv("API_HASH")
-        api_id   = os.getenv("API_ID")
-
-    if api_hash is None or api_id is None:
-        print("!!! ERROR !!!")
-        print("You need to specify either the API_HASH and the API_ID or the --api_hash and --api_id parameters")
-        exit(1)
-
-    # Have a client and run it
-    client = Client(api_id=api_id, api_hash=api_hash)
+    client = Client(API_HASH, API_ID)
     await client.connect()
 
-    # Say Hello
-    me = await client.get_me()
-    print("######## TGRAM (v.0.0.1) ########")
-    # print(f"   Welcome back [{me}]")
-    
-    # Hava a CLI and run it
-    cli = Cli(limit=args.limit, client=client)
-    await cli.run()
+    # Get the chat ID
+    name = "Polito Debate"
+    chat = await client.chat_by_id(name=name)
+    if chat is None:
+        print(f"[error]: chat named {name} not found, exiting with 1")
+        sys.exit(1)
 
-    # Exit
+    #
+    # Get all users in chat and write a CSV
+    # containing basic info: the id Telegram
+    # has assigned to the user, the username,
+    # the first name, the last name, the phone
+    # if the user is a bot
+    #
+
+    users = await client.all_users(chat)
+    print(f"[info]: there are {len(users)} users in the chat named {name}")
+    pd.DataFrame([{
+        "id"         : user.id,
+        "username"   : user.username,
+        "first_name" : user.first_name,
+        "last_name"  : user.last_name,
+        "phone"      : user.phone,
+        "bot"        : user.bot,
+    } for user in users]).to_csv(f"{name.replace(" ", "_")}_users.csv", index=False)
+
+
+    #
+    # Get all messages in chat between two dates
+    # For each message, save the id, the date, the
+    # sender, any reaction and if it is a reply to
+    # someone else
+    #
+
+    ts       = datetime.datetime(2025, 12, 1,  tzinfo=datetime.timezone.utc)
+    te       = datetime.datetime(2025, 12, 25, tzinfo=datetime.timezone.utc)
+    messages = await client.messages_between_dates(chat, ts, te)
+    print(f"[info]: there are {len(messages)} messages in the chat named {name}")
+
+    records = []
+    columns = ["id", "date", "text", "sender", "reactions"]
+    for m in messages:
+        id        = m.id
+        date      = m.date
+        text      = m.message
+        sender    = m.from_id.user_id
+        reactions = m.reactions
+        if len(text) > 0:
+            streak = ""
+            if reactions:
+                for r in reactions.results:
+                    streak += f"{r.reaction.emoticon}:{r.count} "
+            records.append([id, date, text, sender, reactions])
+    pd.DataFrame(records, columns=columns).to_csv(f"{name.replace(' ', '_')}_messages.csv", index=False)
+
     await client.disconnect()
 
 if __name__ == "__main__":
